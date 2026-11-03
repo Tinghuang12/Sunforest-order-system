@@ -206,7 +206,7 @@ function scenarioRows(scenarios, { withResult = false } = {}) {
   if (!scenarios.length) return '<p class="muted">報告中沒有情境表。</p>';
   return `<ul class="scenarios">${scenarios
     .map((s) => {
-      const label = SCENARIO_LABEL[s.kind] || s.name;
+      const label = s.kind === 'other' ? s.name : SCENARIO_LABEL[s.kind] || s.name;
       const hitCls = withResult ? (s.hit ? 'scn-hit' : 'scn-miss') : '';
       return `<li class="scn scn-${s.kind} ${hitCls}">
         <div class="scn-row">
@@ -230,13 +230,15 @@ function stockList(rows, dir) {
       (s) => `<li class="stock stock-${dir}">
       <details>
         <summary>
-          <span class="stock-id"><b class="code">${esc(s.code)}</b> <span class="name">${esc(s.name)}</span></span>
-          ${confChip(s.level, s.confidence)}
+          <span class="stock-id"><b class="code">${esc(s.code)}</b> <span class="name">${esc(s.name)}</span>${s.nameNote ? `<span class="muted small">${esc(s.nameNote)}</span>` : ''}</span>
+          ${confChip(s.level, s.prob ? `${CONF_LABEL[s.level] || s.confidence} ${s.prob}%` : s.confidence)}
         </summary>
         <dl class="stock-detail">
           <dt>催化劑</dt><dd>${inline(s.catalyst)}</dd>
           <dt>推理邏輯</dt><dd>${inline(s.logic)}</dd>
+          ${s.target ? `<dt>目標／失效</dt><dd>${inline(s.target)}</dd>` : ''}
           <dt>主要風險</dt><dd>${inline(s.risk)}</dd>
+          ${s.confidence ? `<dt>信心</dt><dd>${esc(s.confidence)}</dd>` : ''}
         </dl>
       </details>
       <p class="stock-catalyst">${inline(s.catalyst)}</p>
@@ -252,6 +254,29 @@ function statTile(label, value, sub = '', cls = '') {
 function ratioTile(label, r, cls = '') {
   if (!r || r.hit === null || r.hit === undefined || !r.total) return statTile(label, '–', '無樣本', cls);
   return statTile(label, pct(r.pct, r.pct % 1 ? 1 : 0), `${r.hit} / ${r.total}`, cls);
+}
+
+function dataTable(t) {
+  if (!t || !t.headers || !t.headers.length) return '';
+  return `<div class="table-wrap"><table class="data"><thead><tr>${t.headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${t.rows
+    .map((row) => `<tr>${row.map((c, i) => `<td class="${i === 0 ? 'nowrap' : ''}">${inline(c)}</td>`).join('')}</tr>`)
+    .join('')}</tbody></table></div>`;
+}
+
+function stripOrdinal(heading) {
+  return heading.replace(/^[一二三四五六七八九十之]+、/, '');
+}
+
+/** 未特別處理的區段：各自一張可收合的卡片，確保報告新增段落時畫面不漏內容。 */
+function otherSectionCards(sections) {
+  return (sections || [])
+    .map((s) => card({ body: `<details class="more"><summary>${esc(stripOrdinal(s.heading))}</summary><div class="prose compact">${tokensToHtml(s.tokens)}</div></details>` }))
+    .join('');
+}
+
+function tableCard(title, tokens, { open = false, sub = '' } = {}) {
+  if (!tokens || !tokens.length) return '';
+  return card({ body: `<details class="more" ${open ? 'open' : ''}><summary>${title}</summary>${sub ? `<p class="muted small">${sub}</p>` : ''}<div class="prose compact">${tokensToHtml(tokens)}</div></details>` });
 }
 
 // ---------- 各分頁 ----------
@@ -273,9 +298,11 @@ async function viewToday(root) {
   const market = p.market
     ? card({
         title: '大盤情境',
-        sub: esc(p.market.heading.replace(/^[一二三四五六七八九十]+、/, '').replace(/^大盤情境\s*/, '')),
-        body: `${scenarioRows(p.market.scenarios)}
-          ${p.market.prose.length ? `<details class="more"><summary>基礎數據與開盤推測</summary><div class="prose compact">${tokensToHtml(p.market.prose)}</div></details>` : ''}`,
+        sub: esc(stripOrdinal(p.market.heading).replace(/^大盤情境\s*/, '')),
+        body: `${p.market.verdict ? `<p class="verdict">主判斷：<b>${esc(p.market.verdict.text)}</b>${p.market.verdict.prob ? `<span class="num"> ${p.market.verdict.prob}%</span>` : ''}</p>` : ''}
+          ${p.market.opening ? `<p class="muted small">開盤預估：${esc(p.market.opening)}</p>` : ''}
+          ${scenarioRows(p.market.scenarios)}
+          ${p.market.prose.length ? `<details class="more"><summary>基礎數據、準則核對與不押名單</summary><div class="prose compact">${tokensToHtml(p.market.prose)}</div></details>` : ''}`,
       })
     : '';
   const bull = card({
@@ -288,16 +315,18 @@ async function viewToday(root) {
     cls: 'edge-down',
     body: stockList(p.bearish, 'down') + (p.bearishExtra.length ? `<div class="prose compact note">${tokensToHtml(p.bearishExtra)}</div>` : ''),
   });
-  const highlights = p.highlights.length
-    ? card({ title: '隔夜與今晨重點', body: `<details class="more" open><summary>共 ${p.highlightItems.length || ''} 條</summary><div class="prose compact">${tokensToHtml(p.highlights)}</div></details>` })
-    : '';
-  const bigshots = p.bigshots.length ? card({ title: '大咖發言', body: `<div class="prose compact">${tokensToHtml(p.bigshots)}</div>` }) : '';
+  const reasoning = tableCard('推理摘要', p.reasoning, { open: true });
+  const highlights = tableCard(`隔夜與今晨重點${p.highlightItems.length ? ` <span class="count">${p.highlightItems.length}</span>` : ''}`, p.highlights);
+  const sectors = tableCard('產業族群', p.sectors);
+  const bigshots = tableCard('大咖發言', p.bigshots);
+  const searchLog = tableCard('搜尋紀錄表', p.searchLog);
+  const notes = tableCard('附註', p.notes);
   const intro = p.intro.length ? card({ body: `<details class="more"><summary>報告說明與資料限制</summary><div class="prose compact">${tokensToHtml(p.intro)}</div></details>` }) : '';
   const reviewBanner = sameDayReview
     ? `<a class="banner" href="#/review">本日盤後檢討已產出 → 查看評分</a>`
     : '';
 
-  root.innerHTML = `${reportHeader('盤前顧問報告', meta)}${reviewBanner}${adopted}${market}${bull}${bear}${highlights}${bigshots}${intro}${card({ body: docActions(meta) })}
+  root.innerHTML = `${reportHeader('盤前顧問報告', meta)}${reviewBanner}${adopted}${market}${bull}${bear}${reasoning}${highlights}${sectors}${bigshots}${otherSectionCards(p.others)}${searchLog}${notes}${intro}${card({ body: docActions(meta) })}
     <p class="disclaimer">本頁內容為公開資訊整理與推測，非投資建議，投資人應自行判斷。</p>`;
   fillCommitTimes(root);
 }
@@ -311,23 +340,40 @@ async function viewReview(root) {
   }
   root.innerHTML = loading('讀取盤後檢討…');
   const { parsed: p } = await loadDoc(meta);
-  const base = p.marketCheck.find((s) => s.kind === 'base');
   const samePremarket = idx.premarkets.find((m) => m.date === meta.date);
+  // 大盤是否命中：優先用 scoreboard 的同日列（盤後檢討官維護），其次用檢討內文。
+  let sbRow = null;
+  if (idx.scoreboard) {
+    try {
+      const { parsed: sb } = await loadDoc(idx.scoreboard);
+      sbRow = sb.daily.find((d) => d.date === meta.date) || null;
+    } catch {
+      /* 次要資訊 */
+    }
+  }
+  const rangeHit = sbRow ? sbRow.rangeHit : p.marketRangeHit;
+  const dirHit = sbRow ? sbRow.dirHit : p.marketDirHit;
+  const baseScn = p.marketCheck.find((s) => s.kind === 'base');
+  const rangeText = sbRow ? sbRow.range : baseScn ? baseScn.range : '';
+  const marketTileValue = rangeHit === null || rangeHit === undefined ? '–' : rangeHit ? '命中' : '未命中';
+  const marketTileSub = `${rangeText ? esc(rangeText) : ''}${dirHit === null || dirHit === undefined ? '' : `<br>方向 ${dirHit ? '✓ 命中' : '✗ 未命中'}`}`;
 
   const tiles = `<div class="tiles">
     ${ratioTile('看漲命中', p.stats.bullish, 'tile-up')}
     ${ratioTile('看跌命中', p.stats.bearish, 'tile-down')}
     ${ratioTile('個股合計', p.stats.overall)}
-    ${statTile('大盤基準區間', base ? (base.hit ? '命中' : '未命中') : '–', base ? esc(base.range) : '', base ? (base.hit ? 'tile-hit' : 'tile-miss') : '')}
+    ${statTile('大盤基準區間', marketTileValue, marketTileSub, rangeHit === null || rangeHit === undefined ? '' : rangeHit ? 'tile-hit' : 'tile-miss')}
   </div>`;
 
   const summary = p.summary.length
-    ? card({ title: '實際結果摘要', body: `<dl class="kv">${p.summary.map((r) => `<dt>${esc(r.item)}</dt><dd>${inline(r.value)}</dd>`).join('')}</dl>` })
+    ? card({ title: '實際結果摘要', body: `<dl class="kv">${p.summary.map((r) => `<dt>${esc(r.item)}</dt><dd>${inline(r.value)}${r.source ? ` <span class="muted small">（${esc(plain(r.source))}）</span>` : ''}</dd>`).join('')}</dl>` })
     : '';
-  const market = card({
-    title: '大盤對照',
-    body: scenarioRows(p.marketCheck, { withResult: true }) + (p.marketNotes.length ? `<div class="prose compact note">${tokensToHtml(p.marketNotes)}</div>` : ''),
-  });
+  const market = p.marketCheck.length || p.marketTable || p.marketNotes.length
+    ? card({
+        title: '大盤對照',
+        body: (p.marketCheck.length ? scenarioRows(p.marketCheck, { withResult: true }) : dataTable(p.marketTable)) + (p.marketNotes.length ? `<div class="prose compact note">${tokensToHtml(p.marketNotes)}</div>` : ''),
+      })
+    : '';
   const scores = card({
     title: `個股評分表 <span class="count">${p.scores.length}</span>`,
     sub: `平盤 ${p.stats.flat} 檔不計分${p.stats.na ? `，未查得 ${p.stats.na} 檔` : ''}`,
@@ -338,7 +384,7 @@ async function viewReview(root) {
             <summary>
               <span class="stock-id"><b class="code">${esc(s.code)}</b> <span class="name">${esc(s.name)}</span></span>
               ${chip(s.directionText || (s.direction === 'up' ? '看漲' : '看跌'), `dir dir-${s.direction}`)}
-              ${confChip(s.level, s.confidence)}
+              ${confChip(s.level, s.prob ? `${CONF_LABEL[s.level] || s.confidence} ${s.prob}%` : s.confidence)}
               ${changeHtml(s.change, s.changePct)}
               ${chip(OUTCOME_LABEL[s.outcome] || s.outcome, `out out-${s.outcome}`)}
             </summary>
@@ -360,18 +406,13 @@ async function viewReview(root) {
   const reflections = p.reflections.length
     ? card({ title: '未命中案例反省', sub: '三問：依據是什麼？市場為何不同？是規律還是雜訊？', body: `<details class="more"><summary>展開反省內容</summary><div class="prose compact">${tokensToHtml(p.reflections)}</div></details>` })
     : '';
-  const rules = p.ruleChecks.length
-    ? card({
-        title: '準則檢驗表',
-        body: `<div class="table-wrap"><table class="data"><thead><tr><th>準則</th><th>本日案例</th><th>結論</th>${p.ruleChecks.some((r) => r.tally) ? '<th>累計</th>' : ''}</tr></thead><tbody>${p.ruleChecks
-          .map((r) => `<tr><td class="nowrap"><b>${esc(r.rule)}</b></td><td>${inline(r.cases)}</td><td>${esc(r.verdict)}</td>${p.ruleChecks.some((x) => x.tally) ? `<td class="num">${inline(r.tally)}</td>` : ''}</tr>`)
-          .join('')}</tbody></table></div>`,
-      })
+  const rules = p.ruleChecks
+    ? card({ title: '準則檢驗表', body: dataTable(p.ruleChecks) + (p.ruleNotes.length ? `<div class="prose compact note">${tokensToHtml(p.ruleNotes)}</div>` : '') })
     : '';
   const intro = p.intro.length ? card({ body: `<details class="more"><summary>資料來源與未查得項目</summary><div class="prose compact">${tokensToHtml(p.intro)}</div></details>` }) : '';
   const link = samePremarket ? `<a class="banner" href="#/doc/${encodeURIComponent(samePremarket.path)}">對照同日盤前報告 →</a>` : '';
 
-  root.innerHTML = `${reportHeader('盤後檢討', meta, { tag: p.tag })}${tiles}${link}${advice}${market}${scores}${summary}${reflections}${rules}${intro}${card({ body: docActions(meta) })}
+  root.innerHTML = `${reportHeader('盤後檢討', meta, { tag: p.tag })}${tiles}${link}${advice}${market}${scores}${summary}${reflections}${rules}${otherSectionCards(p.others)}${intro}${card({ body: docActions(meta) })}
     <p class="disclaimer">本頁為公開資訊整理與事後評分，非投資建議。</p>`;
   fillCommitTimes(root);
 }
@@ -399,7 +440,7 @@ async function viewScoreboard(root) {
   const chart = card({ title: '每日命中率走勢', sub: `${s.daily.length} 個交易日`, body: '<div id="hit-chart" class="chart-wrap"></div>' });
   const table = card({
     title: '每日明細',
-    body: `<div class="table-wrap"><table class="data"><thead><tr><th>日期</th><th>基準區間</th><th>收盤</th><th>區間</th><th>看漲</th><th>看跌</th><th>中信心</th><th>低信心</th></tr></thead><tbody>${[...s.daily]
+    body: `<div class="table-wrap"><table class="data"><thead><tr><th>日期</th><th>基準區間</th><th>收盤</th><th>區間</th><th>方向</th><th>看漲</th><th>看跌</th><th>高</th><th>中</th><th>低</th></tr></thead><tbody>${[...s.daily]
       .reverse()
       .map(
         (d) => `<tr>
@@ -407,8 +448,10 @@ async function viewScoreboard(root) {
         <td class="num nowrap">${esc(d.range)}</td>
         <td class="num">${esc(d.close)}</td>
         <td>${d.rangeHit ? '<span class="mark-hit">✓</span>' : '<span class="mark-miss">✗</span>'}</td>
+        <td>${d.dirHit === null ? '<span class="muted">–</span>' : d.dirHit ? '<span class="mark-hit">✓</span>' : '<span class="mark-miss">✗</span>'}</td>
         <td class="num">${d.bullish.hit === null ? '–' : `${d.bullish.hit}/${d.bullish.total}`}</td>
         <td class="num">${d.bearish.hit === null ? '–' : `${d.bearish.hit}/${d.bearish.total}`}</td>
+        <td class="num">${d.high.hit === null ? '–' : `${d.high.hit}/${d.high.total}`}</td>
         <td class="num">${d.mid.hit === null ? '–' : `${d.mid.hit}/${d.mid.total}`}</td>
         <td class="num">${d.low.hit === null ? '–' : `${d.low.hit}/${d.low.total}`}</td>
       </tr>`,
@@ -416,7 +459,7 @@ async function viewScoreboard(root) {
       .join('')}</tbody></table></div>${s.totalsNotes.length ? `<div class="prose compact note">${tokensToHtml(s.totalsNotes)}</div>` : ''}`,
   });
   const rules = card({
-    body: `<p class="muted small">命中定義：看漲且收盤漲幅 &gt;0、看跌且跌幅 &lt;0 為命中；|漲跌| ≤0.3% 視為平盤不計分。準則需累積 ≥5 個獨立樣本才會升為「有效訊號」（命中率 ≥60%）或降為「無效訊號」（≤40%）。</p>
+    body: `<p class="muted small">命中定義：看漲且收盤漲幅 &gt;0、看跌且跌幅 &lt;0 為命中；|漲跌| ≤0.3% 視為平盤不計分。「區間」為收盤是否落在基準區間，「方向」為主判斷（收漲／收跌）是否正確。準則需累積 ≥5 個獨立樣本才會升為「有效訊號」（命中率 ≥60%）或降為「無效訊號」（≤40%）。</p>
       <div class="btn-row"><a class="btn" href="#/doc/${encodeURIComponent(idx.scoreboard.path)}">原始戰績表</a><a class="btn ghost" href="${state.source.blobUrl(idx.scoreboard.path)}" target="_blank" rel="noopener">GitHub</a></div>`,
   });
   root.innerHTML = `<div class="report-head"><div><p class="eyebrow">戰績表</p><h2 class="report-date">累計戰績</h2></div><div class="report-tags"><span class="muted small" data-commit="${esc(idx.scoreboard.path)}"></span></div></div>${tiles}${chart}${table}${rules}`;
@@ -434,7 +477,7 @@ function ruleCard(r, samples) {
           const total = m.support + m.against;
           const sp = total ? Math.round((m.support / total) * 100) : 0;
           return `<div class="sample">
-            <div class="sample-row"><span class="sample-id">${esc(m.id.replace(r.id, '').trim() || '樣本')}</span><span class="num">支持 ${m.support}・反證 ${m.against}<span class="muted">／${total}</span></span></div>
+            <div class="sample-row"><span class="sample-id">${esc(m.id.replace(r.id, '').trim() || '樣本')}</span><span class="num">支持 ${m.support}・反證 ${m.against}<span class="muted">／${total}</span>${m.days ? `<span class="muted small">　獨立日 ${esc(m.days)}</span>` : ''}</span></div>
             <div class="bar split"><i class="support" style="width:${sp}%"></i><i class="against" style="width:${100 - sp}%"></i></div>
             ${m.notes ? `<p class="sample-note">${inline(m.notes)}</p>` : ''}
           </div>`;

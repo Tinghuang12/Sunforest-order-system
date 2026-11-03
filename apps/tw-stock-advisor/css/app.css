@@ -119,7 +119,8 @@ ul, ol { margin: 0; padding: 0; }
 .card.error { border-color: var(--miss); }
 .count { font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--text-2); border-radius: 999px; padding: 1px 8px; }
 
-.report-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; padding: 4px 2px 0; }
+.report-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 6px 10px; padding: 4px 2px 0; }
+.report-date .small { white-space: nowrap; }
 .eyebrow { font-size: 12.5px; color: var(--muted); letter-spacing: 0.04em; }
 .report-date { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; }
 .report-tags { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; align-items: center; text-align: right; }
@@ -168,6 +169,11 @@ ul, ol { margin: 0; padding: 0; }
 .num-flat { color: var(--muted); }
 .mark-hit { color: var(--hit); font-weight: 700; }
 .mark-miss { color: var(--miss); font-weight: 700; }
+
+/* 主判斷 */
+.verdict { font-size: 15px; margin-bottom: 6px; }
+.verdict b { font-size: 17px; }
+.stock-id .small { margin-left: 4px; }
 
 /* 情境 */
 .scenarios { list-style: none; display: grid; gap: 10px; }

@@ -72,7 +72,8 @@ export function renderHitRateChart(container, daily) {
       const v = last[s.key].pct;
       const anchor = n === 1 || i === n - 1 ? 'end' : 'start';
       const dx = anchor === 'end' ? -10 : 10;
-      const dy = s.key === 'bullish' ? -10 : 18;
+      // 標籤放在點的上方或下方，避免壓到軸標籤：高值放下方、低值放上方。
+      const dy = s.key === 'bullish' ? (v > 85 ? 18 : -10) : v < 15 ? -10 : 18;
       svg += `<text x="${x(i) + dx}" y="${y(v) + dy}" class="label" text-anchor="${anchor}">${s.label.slice(0, 2)} ${pct(v)}</text>`;
     }
   });
@@ -97,7 +98,7 @@ export function renderHitRateChart(container, daily) {
     cross.setAttribute('x2', x(i));
     cross.style.display = '';
     const row = (label, r) => `<div><span>${label}</span><strong>${r && r.hit !== null ? `${r.hit}/${r.total}＝${pct(r.pct, 1)}` : '無樣本'}</strong></div>`;
-    tip.innerHTML = `<div class="tip-title">${esc(d.date)}</div>${row('看漲', d.bullish)}${row('看跌', d.bearish)}<div><span>大盤</span><strong>${d.rangeHit ? '命中' : '未命中'} ${esc(d.range)}</strong></div><div><span>收盤</span><strong>${esc(d.close)}</strong></div>`;
+    tip.innerHTML = `<div class="tip-title">${esc(d.date)}</div>${row('看漲', d.bullish)}${row('看跌', d.bearish)}<div><span>區間</span><strong>${d.rangeHit ? '命中' : '未命中'} ${esc(d.range)}</strong></div>${d.dirHit === null ? '' : `<div><span>方向</span><strong>${d.dirHit ? '命中' : '未命中'}</strong></div>`}<div><span>收盤</span><strong>${esc(d.close)}</strong></div>`;
     tip.hidden = false;
     const rect = svgEl.getBoundingClientRect();
     const px = (x(i) / W) * rect.width;
